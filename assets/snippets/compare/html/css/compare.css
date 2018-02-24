@@ -1,0 +1,15 @@
+.compare-message{
+    position: absolute;
+    top: 50%;
+    border: 1px solid rgba(0, 0, 0, 0.35);
+    background: #fff;
+    padding: 5px;
+    z-index: 10;
+    border-radius: 5px;
+    left: 50%;
+    display: block;
+    transform: translate(-50%, -50%);
+}
+.compare-list, .desire-list{
+    position: relative;
+}
