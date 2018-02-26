@@ -13,3 +13,23 @@
 .compare-list, .desire-list{
     position: relative;
 }
+.compare-group table{
+    border-collapse: collapse;
+    width: 100%;
+}
+.compare-group table td{
+    border: 1px black solid;
+    padding: 10px;
+}
+.compare-group table .tv-group-wrap{
+    text-align: center;
+}
+.actions-wrap.hide{
+    display: none;
+}
+
+/*vertical layout*/
+.vertical-layout .compare-item{
+    width: 25%;
+    display: inline-block;
+}

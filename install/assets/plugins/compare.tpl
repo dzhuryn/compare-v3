@@ -42,6 +42,15 @@
       "desc": ""
     }
   ],
+  "categoryTemplate": [
+    {
+      "label": "Список id шаблонов категорий товаров:",
+      "type": "text",
+      "value": "4",
+      "default": "",
+      "desc": ""
+    }
+  ],
   "alertTemplate": [
     {
       "label": "Шаблон окна об ограничение количества:",

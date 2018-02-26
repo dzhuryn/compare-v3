@@ -78,6 +78,15 @@ function deleteFromCompare(id, parent,listKey) {
     delete cookie[parent][id];
     setCookie(listKey, cookie);
 }
+/*
+* Удаление группы из списка
+*/
+function deleteGroupFromCompare( parent,listKey) {
+    var cookie = getCookie(listKey);
+    delete cookie[parent];
+    setCookie(listKey, cookie);
+}
+
 
 /*
 * Установка обработчиков событий, доп класов
@@ -114,6 +123,7 @@ function setActions(listKey) {
     });
 
     _compareCountFull[listKey] = 0;
+    _compareCount[listKey] = {};
     //утсановка класа для выбранных елементов
     var cookie = getCookie(listKey);
     for (var parent in cookie) {
@@ -125,9 +135,7 @@ function setActions(listKey) {
                 }
             }
             _compareCountFull[listKey]++;
-            if(typeof _compareCount[listKey] === 'undefined'){
-                _compareCount[listKey] = {};
-            } if(typeof _compareCount[listKey][parent] === 'undefined'){
+            if(typeof _compareCount[listKey][parent] === 'undefined'){
                 _compareCount[listKey][parent] = 0;
             }
 
@@ -175,6 +183,7 @@ function toList(id,parent,listKey) {
     }
     else{
 
+
         if(compareOptions['max'][listKey]> 0 && _compareCount[listKey][parent] > (compareOptions['max'][listKey] - 1)){
             if (typeof showMaxAlertCustom === 'function') {  //проверка наличия кастомной функции
                 showMaxAlertCustom(elem,id,parent,listKey);
@@ -192,8 +201,57 @@ function toList(id,parent,listKey) {
     updateGlobalClass(listKey);
 
 }
+function updateAll(params,list) {
+    if (typeof params.unique === 'undefined') {
+        params.unique = $('.compare-wrapper[data-list="'+list+'"] .compare-unique-value').data('status')
+    }
+    $.get(window.location,params,function (html) {
+        var categoryHtml = $(html).find('.compare-wrapper[data-list="'+list+'"]').html();
+        $('.compare-wrapper[data-list="'+list+'"]').html(categoryHtml)
+    })
 
+}
 
 compareOptions.list.split(',').forEach(function (listKey) {
     setActions(listKey)
+});
+
+
+$(document).on('click','.compare-remove-category',function (e) {
+    e.preventDefault()
+    var parent = $(this).data('id');
+    var groupObj = $('.compare-group[data-id="'+parent+'"]')
+    var list = groupObj.data('list');
+
+    deleteGroupFromCompare(parent,list);
+    updateAll(list);
+    setActions(list)
+});
+
+$(document).on('click','.compare-remove-item',function (e) {
+    e.preventDefault();
+    var id = $(this).data('id');
+    var groupObj = $(this).closest('.compare-group');
+
+    var groupId = groupObj.data('id');
+    var list = groupObj.data('list');
+    deleteFromCompare(id,groupId,list)
+
+    updateAll({},list);
+    setActions(list)
+
+
+});
+$(document).on('click','.compare-unique-value',function (e) {
+    e.preventDefault();
+    var parent = $(this).data('group');
+    var status = parseInt($(this).data('status'));
+    var list = $(this).closest('.compare-wrapper').data('list');
+    if(status === 1)
+        status = 0;
+    else
+        status = 1;
+    updateAll({unique:status},list);
+
+
 });

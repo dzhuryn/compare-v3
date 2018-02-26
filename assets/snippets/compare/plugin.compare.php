@@ -24,11 +24,11 @@ if (!function_exists('compare_parent')) {
 $e = $modx->event;
 switch ($e->name) {
     case 'OnWebPageInit':
-        $lang = [];
-        $langFile = MODX_BASE_PATH . 'assets/snippets/compare/lang/' . $language . '.php';
-        if (file_exists($langFile)) {
-            require $langFile;
-        }
+            $lang = [];
+            $langFile = MODX_BASE_PATH . 'assets/snippets/compare/lang/' . $language . '.php';
+            if (file_exists($langFile)) {
+                require $langFile;
+            }
 
 
         $maxArray = [];
