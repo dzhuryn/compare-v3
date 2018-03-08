@@ -21,8 +21,7 @@ class compare
     public $product_templates_id; //шаблоны товаров
     public $config = [
         'showUniqueValues' => 0,//показывать только уникальние значения параметров
-        'requiredTV' => '', // Обезательние тв поля для выборки DocLister (картинка товара и т.д.)
-        'tvList' => '',//список тв для сравнения
+
         'layoutType' => 'horizontal', //тип версти  (horizontal|vertical)
         'list' => 'compare', //ключ списка товаров
         'tvConfigType' => 'all', //Способ получения списка тв параметров (all|category|tv|list)
@@ -31,7 +30,9 @@ class compare
         'tvGroupShowEmpty'=>'1', //Показывать групу без категории,
         'prepare'=>'', // prepare для шаблонов
         'lang'=>'ru',// язык
-        'minItem'=>2 //минимальное количество
+        'api'=>0,// язык
+        'minItem'=>0, //минимальное количество
+        'tvHideEmpty'=>1, //скрывать пустие тв параметры
     ];
 
 
@@ -53,10 +54,9 @@ class compare
         'paramsFirstBlockTpl' => '@CODE:<td>[+paramCaption+]</td>',
         'itemTpl' => '@CODE:<td>[+pagetitle+]<br> <img src="[[phpthumb? &input=`[+image+]` &options=`w=100,h=100,far=C,bg=ffff`]]"><br><a class="compare-remove-item" data-id="[+id+]" href="[~[*id*]~]?delete=[+id+]">Удалить</a> </td>',
         'rowTpl' => '@CODE:<tr class="[+class+]">[+wrap+]</tr>',
-        'paramNameTpl' => '@CODE:<td>[+name+]</td>',
+        'paramNameTpl' => '@CODE:<td>[+caption+]</td>',
         'paramTpl' => '@CODE:<td>[+value+]</td>',
-        'groupOuterTpl' => '@CODE:<tr class="[+class+]">[+wrap+]</tr>',  //шаблон обертка строки з названием групы
-        'groupRowTpl' => '@CODE:<td colspan="[+count+]"><b>[+name+]</b></td>',  //шаблон ячейки з названием групы
+        'groupTpl' => '@CODE:<tr class="[+class+]"><td colspan="[+count+]"><b>[+name+]</b></td></tr>',  //шаблон обертка строки з названием групы
     ];
 
     public $vertical_config = [
@@ -64,15 +64,23 @@ class compare
         'blockOuter'=>'@CODE:<div class="compare-item">[+item+][+tvs+]</div>', //обертка блока с товаром и эго свойствами
         'itemTpl'=> '@CODE:<div class="compare-item-info">[+pagetitle+]<br> <img src="[[phpthumb? &input=`[+image+]` &options=`w=100,h=100,far=C,bg=ffff`]]"><br><a class="compare-remove-item" data-id="[+id+]" href="[~[*id*]~]?delete=[+id+]">Удалить</a> </div>', //блок сверху с информацией об товаре
         'paramBlockOuter'=>'@CODE:<ul class="compare-values-outer">[+wrap+]</ul>',// обертка блока с списком ив полей
-        'paramTpl'=>'@CODE:<li><p>[+name+]</p><p>[+value+]</p></li>',// Блок из значением тв поля
+        'paramTpl'=>'@CODE:<li><p>[+caption+]</p><p>[+value+]</p></li>',// Блок из значением тв поля
+        'groupTpl' => '@CODE:<div class="param-group-outer">[+name+] <div class="group-tvs">[+tvs+]</div> </div>',  //шаблон обертка строки з названием групы и параметрами
+
+
     ];
 
     /* масив из языковымы надписямы */
     public $lang;
-
+    public $itemsData;
     public $categoryTVConfig;
-
     public $categoriesCaption;
+
+    /* Последняя категория */
+    public $lastRenderCategory;
+
+    /** Масив из сформированными списком товаров и списком ттв параметров **/
+    public $listData;
     public function __construct($modx, $params)
     {
         $this->modx = $modx;
@@ -105,8 +113,16 @@ class compare
 
     public function run()
     {
-        $data = $this->getList();
-        $output = $this->render($data);
+        $this->getList();
+        if($this->config['api'] == 1){
+            $data = [
+                'data'=>$this->itemsData,
+                'config'=>$this->categoryTVConfig
+            ];
+            return json_encode($data,JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        }
+
+        $output = $this->render($this->itemsData);
 
         return $output;
     }
@@ -129,6 +145,7 @@ class compare
             $categoryName = $this->getCategoryName($category);
             $tvConfig = $this->getTvConfig($items);
 
+
             $ids = [];
             foreach ($items as $id => $bool) {
                 $ids[] = $id;
@@ -140,14 +157,17 @@ class compare
             $tvs = [];
             $tvsIds = [];
 
-            foreach ($tvConfig as $tvElem) {
-                $tvs[] = $tvElem['name'];
-                $tvsIds[$tvElem['id']] = $tvElem['id'];
+            foreach ($tvConfig as $tvCategory) {
+                foreach ($tvCategory['tv'] as $tvElem) {
+
+                    $tvs[] = $tvElem['name'];
+                    $tvsIds[$tvElem['id']] = $tvElem['id'];
+                }
             }
 
             $defaultTvValue = $this->getDefaultTVValues($tvsIds);
-            if (!empty($this->config['requiredTV'])) {
-                $tvs[] = $this->config['requiredTV'];
+            if (!empty($this->config['dl_tvList'])) {
+                $tvs[] = $this->config['dl_tvList'];
             }
             $tvs = implode(',', $tvs);
 
@@ -157,6 +177,7 @@ class compare
             foreach ($this->config as $key=>$value) {
                 $exp = explode('_',$key);
                 if($exp[0]!='dl') {continue;}
+                if($exp[1]=='tvList') {continue;}
                 $docLiterUserParams[$exp[1]] = $value;
             }
             $defaultParams = [
@@ -168,72 +189,122 @@ class compare
                 'selectFields'=>'id,pagetitle,longtitle,description,introtext',
             ];
             $params = array_merge($defaultParams,$docLiterUserParams);
+
+
             $itemsData = $modx->runSnippet('DocLister', $params);
             $itemsData = json_decode($itemsData,true);
 
             //проверка на уникальность
-            foreach ($tvConfig as $key=> $tvElem) {
-                $tvName = $tvElem['name'];
-                $tvId = $tvElem['id'];
-                $values = [];
-                foreach ($itemsData as  $elem) {
-                    $tvValue = $elem[$tvName];
-                    $value = !empty($defaultTvValue[$tvId][$tvValue])?$defaultTvValue[$tvId][$tvValue]:$tvValue;
-                    $values[] = $value;
-                }
-                if($this->checkUniqueValue($values) === false){
-                    unset($tvConfig[$key]);
+            foreach ($tvConfig as $categoryKey=> $tvCategory) {
+                foreach ($tvCategory['tv'] as $key=>$tvElem){
+
+                    $tvName = $tvElem['name'];
+                    $tvId = $tvElem['id'];
+                    $values = [];
+                    foreach ($itemsData as  $elem) {
+                        $tvValue = $elem[$tvName];
+                        $value = !empty($defaultTvValue[$tvId][$tvValue])?$defaultTvValue[$tvId][$tvValue]:$tvValue;
+                        $values[] = $value;
+                    }
+
+
+                    if($this->checkUniqueValue($values) === false){
+                        unset($tvConfig[$categoryKey]["tv"][$key]);
+                    }
+
+                    if($this->checkEmptyValues($values) === true){
+                        unset($tvConfig[$categoryKey]["tv"][$key]);
+                    }
+                    //если в категории не осталось параметров
+                    if(empty($tvConfig[$categoryKey]["tv"])){
+                        unset($tvConfig[$categoryKey]);
+                    }
+
                 }
             }
+
 
             //глобальный список конфигов по категориям
             $this->categoryTVConfig[$category] = $tvConfig;
 
-
-
             $groupItems = [];
             foreach ($itemsData as $key=> $elem) {
                 $itemTV = [];
-                foreach ($tvConfig as $tvElem) {
-                    $tvId = $tvElem['id'];
-                    $tvCaption = $this->prepareTvName($tvId,$tvElem['name'],$tvElem['caption']);
-                    $tvName = $tvElem['name'];
-                    $tvValue = $elem[$tvName];
-                    $value = !empty($defaultTvValue[$tvId][$tvValue])?$defaultTvValue[$tvId][$tvValue]:$tvValue;
-                    $itemTV[$tvId] = [
-                        'name'=>$tvName,
-                        'category'=>$tvElem['category'],
-                        'caption'=>$tvCaption,
-                        'value'=>$value
-                    ];
+                foreach ($tvConfig as $tvCategory) {
+                    foreach ($tvCategory['tv'] as $tvElem) {
+                        $tvId = $tvElem['id'];
+                        $tvName = $tvElem['name'];
+                        $tvValue = $elem[$tvName];
+                        $value = !empty($defaultTvValue[$tvId][$tvValue])?$defaultTvValue[$tvId][$tvValue]:$tvValue;
+
+
+
+                        $itemTV[$tvId] = [
+                            'id'=>$tvElem['id'],
+                            'name'=>$tvElem['name'],
+                            'category'=>$tvElem['category'],
+                            'value'=>$value
+                        ];
+                    }
                 }
+
                 $groupItems[] = [
                     'item'=>$elem,
                     'tv'=>$itemTV
                 ];
             }
 
-            $compareData[] = [
+            $compareData[$category] = [
                 'categoryId'=>$category,
                 'categoryName'=>$categoryName,
                 'items'=>$groupItems
             ];
 
         }
-        return $compareData;
+        $this->itemsData = $compareData;
+
+
+        $prepare = $this->config['prepare'];
+        if($prepare){
+            //prepare для конфигурации тв
+            $this->categoryTVConfig = $this->callPrepare($prepare, array(
+                'data'=>[
+                    'placeholders' => $this->categoryTVConfig
+                ],
+                'templateName' => 'configPrepare',
+                'compare' => $this,
+
+            ));
+            //prepare для данных категорий и товаров
+            $this->itemsData = $this->callPrepare($prepare, array(
+                'data'=>[
+                    'placeholders' => $this->itemsData
+                ],
+                'templateName' => 'itemsPrepare',
+                'compare' => $this,
+
+            ));
+        }
+
     }
 
     public function prepareTvName($id,$name,$caption){
+        if(!empty($this->modx->getConfig('__c_tv_'.$name))){
+            $caption = $this->modx->getConfig('__c_tv_'.$name);
+        }
         return $caption;
     }
     public function getListFromStorage()
     {
-        return json_decode($_COOKIE[$this->config['list'] . 'list'], true);
+        $data =  json_decode($_COOKIE[$this->config['list'] . 'list'], true);
+        if(empty($data) || !is_array($data)){
+            $data = [];
+        }
+        return $data;
     }
 
     public function getTvConfig($items)
     {
-
         //список категорий
         $sql = "select id,category from ".$this->modx->getFullTableName('categories');
         $q = $this->modx->db->query($sql);
@@ -323,16 +394,34 @@ class compare
             default:
                 return [];
         }
-        return $tvList;
+        $tvConfig = [];
+        foreach ($tvList as $key => $tvElem) {
+
+            $tvElem['caption'] = $this->prepareTvName($tvElem['id'],$tvElem['name'],$tvElem['caption']);
+
+            //групировка по группам
+            if($this->config['tvGroup'] == 1){
+                $category = $tvElem['category'];
+                $categoryTitle = $this->prepareTvCategoryCaption($tvElem['category']);
+            }
+            else{
+                $category = 0;
+                $categoryTitle = '';
+            }
+            $tvConfig[$category]['title'] = $categoryTitle;
+            $tvConfig[$category]['tv'][] = $tvElem;
+        }
+        return $tvConfig;
 
     }
 
     public function render($data)
     {
+
         //prepare
         $groupOutput = '';
         foreach ($data as $category) {
-
+            $this->lastRenderCategory = $category['categoryId'];
             switch ($this->config['layoutType']){
                 case 'horizontal':
                     $out = $this->renderHorizontal($category['categoryId'],$category['items']);
@@ -388,61 +477,48 @@ class compare
     {
         $trStr = '';
         $tdStr = '';
-
+        $ind = 0;
 
         $phl = ['paramCaption' => $this->lang['paramCaption']];
         $tdStr .= $this->parseChunk('paramsFirstBlockTpl', $phl);
         foreach ($items as $item) {
             $tdStr .= $this->parseChunk('itemTpl', $item['item']);
         }
-
         $phl = ['wrap' => $tdStr];
-        unset($tdStr);
         $trStr .= $this->parseChunk('firstRowTpl', $phl);
+        unset($tdStr);
 
-
-        $tvCategoryId = -1;
         $tvConfig = $this->categoryTVConfig[$categoryId];
-        foreach ($tvConfig as $tvElem) {
-            $tdStr = '';
-            $tvId = $tvElem['id'];
-            //ячейка из названием тв параметра
-            $phl = ['name' => $tvElem['caption']];
-            $tdStr .= $this->parseChunk('paramNameTpl', $phl);
-            foreach ($items as $item) {
-                $tvValue = $item['tv'][$tvId]['value'];
-                //ячейка из значением параметра
-                $phl = ['value' => $tvValue];
-                $tdStr .= $this->parseChunk('paramTpl', $phl);
-            }
-            if($this->config['tvGroup'] == 1 && $tvCategoryId != $tvElem['category']){ //вклчена групировка и у нас новый параметр
+        foreach ($tvConfig as $categoryId => $tvCategory) {
+            $trStr .= $this->renderHorizontalGroup($categoryId,$tvCategory['title'],count($items));
 
-                /** Строка из групой тв параметров **/
+            foreach ($tvCategory['tv'] as $tvElem) {
+                $tdStr = '';
+                $tvId = $tvElem['id'];
+                //ячейка из названием тв параметра
                 $phl = [
-                    'count'=>count($items) +1,
-                    'name' => $this->prepareTvCategoryCaption($tvElem['category'])
+                    'caption' => $tvElem['caption'],
+                    'name' => $tvElem['name'],
+                    'id' => $tvElem['id'],
                 ];
-                $gorupTD = $this->parseChunk('groupRowTpl', $phl);
-
-
-                /** Обертка ячеек из групой тв параметров **/
-                $phl = [
-                    'class'=>'tv-group-wrap',
-                    'wrap' => $gorupTD
-                ];
-                if($tvElem['category'] > 0 || $this->config['tvGroupShowEmpty'] == 1){
-                    $trStr .= $this->parseChunk('groupOuterTpl', $phl);
+                $tdStr .= $this->parseChunk('paramNameTpl', $phl);
+                foreach ($items as $item) {
+                    $tvValue = $item['tv'][$tvId]['value'];
+                    //ячейка из значением параметра
+                    $phl = [
+                        'id' => $tvElem['id'],
+                        'name' => $tvElem['name'],
+                        'value' => $tvValue,
+                    ];
+                    $tdStr .= $this->parseChunk('paramTpl', $phl);
                 }
-
-                $tvCategoryId = $tvElem['category'];
+                $phl = [
+                    'class'=>$ind % 2==1?'even':'odd',
+                    'wrap' => $tdStr,
+                ];
+                $ind++;
+                $trStr .= $this->parseChunk('rowTpl', $phl);
             }
-
-
-            $phl = [
-                'class' => '',
-                'wrap' => $tdStr,
-            ];
-            $trStr .= $this->parseChunk('rowTpl', $phl);
         }
 
 
@@ -460,36 +536,43 @@ class compare
         foreach ($items as $item) {
             $itemStr = $this->parseChunk('itemTpl', $item['item']);
             $tvsStr = '';
-            foreach ($tvConfig as $tvElem) {
-                $tvId = $tvElem['id'];
-
-
-                $tvName = $tvElem['name'];
-                $tvValue = $item['tv'][$tvId]['value'];
-                $phl = [
-                    'name' => $this->prepareTvName($tvId, $tvName, $tvElem['caption']),
-                    'value' => $tvValue
-                ];
-                $tvsStr .= $this->parseChunk('paramTpl', $phl);
-
-
+            $categoryStr = '';
+            foreach ($tvConfig as $tvCategoryId => $tvCategory) {
+                foreach ($tvCategory['tv'] as  $tvElem) {
+                    $tvId = $tvElem['id'];
+                    $tvValue = $item['tv'][$tvId]['value'];
+                    $phl = [
+                        'id' => $tvElem['id'],
+                        'name' => $tvElem['name'],
+                        'caption' => $tvElem['caption'],
+                        'value' => $tvValue,
+                    ];
+                    $tvsStr .= $this->parseChunk('paramTpl', $phl);
+                }
+                if ($this->config['tvGroup'] == 1) { //вклчена групировка
+                    $categoryStr .= $this->renderVerticalGroup($tvCategoryId,$tvCategory['title'],$tvsStr);;
+                }
+                else{
+                    $categoryStr .= $tvsStr;
+                }
+                unset($tvsStr);
             }
             $phl = [
-                'wrap'=>$tvsStr
+                'wrap' => $categoryStr
             ];
-            $paramBlockOuter =  $this->parseChunk('paramBlockOuter', $phl);
+            $paramBlockOuter = $this->parseChunk('paramBlockOuter', $phl);
             $phl = [
-                'item'=>$itemStr,
-                'tvs'=>$paramBlockOuter
+                'item' => $itemStr,
+                'tvs' => $paramBlockOuter
             ];
-            $itemsStr .=  $this->parseChunk('blockOuter', $phl);
+            $itemsStr .= $this->parseChunk('blockOuter', $phl);
 
         }
 
         $phl = [
-            'wrap'=>$itemsStr,
+            'wrap' => $itemsStr,
         ];
-        $output =  $this->parseChunk('layoutOwnerTpl', $phl);
+        $output = $this->parseChunk('layoutOwnerTpl', $phl);
 
         return $output;
 
@@ -551,16 +634,22 @@ class compare
                 }
             }
         }
-        $this->modx->ef_elements_name = $out;
         return $out;
     }
 
     private function getCategoryName($category)
     {
+
+
+
         if (empty($category)) {
             return '';
         } elseif (is_numeric($category)) {
             $categoryId = intval($category);
+            $langTitle = $this->modx->runSnippet('DocInfo',['field'=>'pagetitle_'.$this->config['lang'],'docid'=>$categoryId]);
+            if(!empty($langTitle)){
+                return $langTitle;
+            }
             return $this->modx->runSnippet('DocInfo', ['docid' => $categoryId]);
         } else {
             return $category;
@@ -599,6 +688,11 @@ class compare
 
     public function parseChunk($name, $data, $parseDocumentSource = false)
     {
+        $categoryKey = '';
+        if(!in_array($name,['ownerTpl','categoryOwnerTpl','categoryEmptyItems'])){
+            $categoryKey = $this->lastRenderCategory;
+        }
+
         $prepare = $this->config['prepare'];
         if($prepare){
             $data = $this->callPrepare($prepare, array(
@@ -606,6 +700,8 @@ class compare
                     'placeholders' => $data
                 ],
                 'templateName' => $name,
+                'compare' => $this,
+                'categoryId' => $categoryKey,
             ));
         }
 //добавляем $lang
@@ -615,6 +711,25 @@ class compare
         $out = $this->DLTemplate->parseChunk($this->config[$name], $data, $parseDocumentSource);
         return $out;
     }
+    /*
+     * Проверка строки на пустоту
+     * Если строка пустая и tvHideEmpty = 1 вернет true
+     * */
+
+    private function checkEmptyValues($values)
+    {
+        $allEmpty = true; //по умолчанию все пусто
+        if ($this->config['tvHideEmpty'] == 0) {
+            return false;
+        }
+        foreach ($values as $value){
+            if(!empty($value)){
+                $allEmpty = false;
+            }
+        }
+        return $allEmpty;
+    }
+
 
     /*
      * Проверка строки на уникальность данныъ
@@ -624,15 +739,15 @@ class compare
         if ($this->config['showUniqueValues'] == 0) {
             return true;
         }
-        $status = true;
+        $searchUnique = false;
         for ($i = 1; $i < count($values); $i++) {
             $oldValue = $values[$i - 1];
             $value = $values[$i];
-            if ($oldValue == $value) {
-                $status = false;
+            if ($oldValue != $value) {
+                $searchUnique = true;
             }
         }
-        return $status;
+        return $searchUnique;
     }
 
     private function prepareTvCategoryCaption($category)
@@ -640,9 +755,56 @@ class compare
         if(empty($category)){
             return $this->lang['groupEmpty'];
         }
+        if(!empty($this->modx->getConfig('__c_g_'.$this->categoriesCaption[$category]))){
+            return $this->modx->getConfig('__c_g_'.$this->categoriesCaption[$category]);
+        }
+
+        if(!empty($this->modx->config['__c_g_'.$category])){
+            return $this->modx->config['__c_g_'.$category];
+        }
+
         return $this->categoriesCaption[$category];
     }
 
+
+    /** Генерация строки из нзванием группи тв параметров для горизонтальной табличной верстки
+     * @param $categoryId
+     * @param $tvCategoryTitle
+     * @param $countItems
+     * @return string
+     */
+    private function renderHorizontalGroup($categoryId, $tvCategoryTitle, $countItems)
+    {
+        if ($this->config['tvGroup'] == 1) { //вклчена групировка
+            /** Обертка ячеек из групой тв параметров **/
+            $phl = [
+                'class' => 'tv-group-wrap',
+                'count' => $countItems + 1,
+                'name' => $tvCategoryTitle
+            ];
+
+            if ($categoryId > 0 || $this->config['tvGroupShowEmpty'] == 1) {
+                return $this->parseChunk('groupTpl', $phl);
+            }
+        }
+    }
+
+    /**
+     * @param $tvCategoryId
+     * @param $title
+     * @param $tvsStr
+     * @return string
+     */
+    private function renderVerticalGroup($tvCategoryId, $title, $tvsStr)
+    {
+        $phl = [
+            'id' => $tvCategoryId,
+            'name' => $title,
+            'tvs' => $tvsStr,
+        ];
+        return $this->parseChunk('groupTpl', $phl);
+
+    }
 
 
 }

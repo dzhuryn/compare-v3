@@ -1,6 +1,7 @@
 <?php
 $list = isset($list) ? $list : '';
 $activeClass = isset($activeClass) ? $activeClass : '';
+$alertTemplate = isset($alertTemplate) ? $alertTemplate : '';
 $language = isset($_SESSION['lang']) ? $_SESSION['lang'] : $lang;
 
 
@@ -24,46 +25,77 @@ if (!function_exists('compare_parent')) {
 $e = $modx->event;
 switch ($e->name) {
     case 'OnWebPageInit':
-            $lang = [];
-            $langFile = MODX_BASE_PATH . 'assets/snippets/compare/lang/' . $language . '.php';
-            if (file_exists($langFile)) {
-                require $langFile;
-            }
+        $lang = [];
+        $langFile = MODX_BASE_PATH . 'assets/snippets/compare/lang/' . $language . '.php';
+        if (file_exists($langFile)) {
+            require $langFile;
+        }
 
+        $config = [
+            'list' => $list,
+            'activeClass' => $activeClass,
+            'alertTemplate' => $alertTemplate,
+        ];
 
-        $maxArray = [];
-        if (!empty($max)) {
-            foreach (explode('||', $max) as $maxList) {
-                $listResp = explode('==', $maxList);
-                $maxArray[$listResp[0]] = $listResp[1];
+        //Сборные параметры
+        $jsonFields = ['max', 'listSetParent','listNames', 'maxShowMessage', 'addShowMessage', 'removeShowMessage'];
+        foreach ($jsonFields as $key) {
+            if (!empty($params[$key])) {
+                $respArray = [];
+                foreach (explode('||', $params[$key]) as $list) {
+                    $resp = explode('==', $list);
+                    $respArray[$resp[0]] = $resp[1];
+                }
+                $config[$key] = $respArray;
             }
         }
-//       if(is_array(explode('')))
-//       var_dump();
+        foreach ($lang as $key =>$langValue) {
+            if(!in_array($key,['max','maxInCategory','add','remove'])){
+                continue;
+            }
+            $config['lang'][$key] = $langValue;
+        }
+        $config = json_encode($config,JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+
+        //для уобства
+
 
         $jsConfig = '
         <script>
-        var compareOptions = {
-         list: "' . $list . '",
-         activeClass: "' . $activeClass . '",
-         max: '.json_encode($maxArray).',
-         alertTemplate:"' . $alertTemplate . '",
-         lang:{
-             max: "' . $lang['max'] . '",
-             maxInCategory: "' . $lang['maxInCategory'] . '",
-         },
-	    };
+        var compareOptions = '.$config.';
         </script>   
         ';
         $modx->regClientHTMLBlock($jsConfig);
-        $modx->regClientScript('/assets/snippets/compare/html/js/compare.js?v=' . time());
-        $modx->regClientCSS('/assets/snippets/compare/html/css/compare.css?v=' . time());
+        if($js == 1){
+            $file = '/assets/snippets/compare/html/js/compare.js';
+            $fileFull = MODX_BASE_PATH.$file;
+            if(file_exists($fileFull)){
+                $file .= '?v='.filemtime($fileFull);
+            }
+            $modx->regClientScript($file);
+        }
+        if($css == 1){
+            $file = '/assets/snippets/compare/html/css/compare.css';
+            $fileFull = MODX_BASE_PATH.$file;
+            if(file_exists($fileFull)){
+                $file .= '?v='.filemtime($fileFull);
+            }
+            $modx->regClientCSS($file);
+        }
+
 
         break;
     case 'OnPageNotFound':
         switch ($_GET['q']) {
             case 'compare_parent':
-                $data = $_GET['data'];
+                $data = $_REQUEST['data'];
+                $list = $_REQUEST['list'];
+                $listParentCheck = [];
+                $listParent = explode('||', $listParent);
+                foreach ($listParent as $elem) {
+                    $elem = explode('==', $elem);
+                    $listParentCheck[$elem[0]] = $elem[1];
+                };
                 //получаем все перенты
                 if (!empty($categoryTemplate)) {
                     $categories = $modx->runSnippet('DocLister', [
@@ -91,6 +123,10 @@ switch ($e->name) {
                         }
                         if (!empty($categories[$parent]['compare_group_name'])) {
                             $title = $categories[$parent]['compare_group_name'];
+                        }
+                        if ($listParentCheck[$list] == 0) {
+                            $parent = 0;
+                            $title = '';
                         }
                         $new[$el] = ['parent' => $parent, 'title' => $title];
                     }
