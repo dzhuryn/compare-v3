@@ -11,6 +11,7 @@ var compare = {
         max: {"compare": "3", "desire": "0"},
         listSetParent: {"compare": "1", "desire": "1"},
         alertTemplate: "<div class='compare-message'>(text)</div>",
+        log:"0",
         listNames: {
             compare: "сравнения",
             desire: "список желаний"
@@ -40,22 +41,28 @@ var compare = {
     lang:'',
     // возвращает cookie с именем name, если есть, если нет, то undefined
     getCookie: function (name) {
+        this.log("Получены данные из cookie для списка "+name);
         name = name + 'list';
         var matches = document.cookie.match(new RegExp(
             "(?:^|; )" + name.replace(/([\.$?*|{}\(\)\[\]\\\/\+^])/g, '\\$1') + "=([^;]*)"
         ));
         matches = matches ? decodeURIComponent(matches[1]) : null;
         if (matches === null) {
+            this.log("Данных нет","only");
             return {};
         }
         matches = matches.replace(/\+/g, ' ');
         var cookie = matches.replace("} }", "}}");
         cookie = JSON.parse(cookie);
+        this.log(cookie,"only");
         return cookie;
     },
     /** Запись в куки  **/
     setCookie: function (name, options) {
         var valueObj = this.cookie[name];
+        this.log("Обновлено cookies для списка "+ compare);
+        this.log(valueObj,"only");
+
         name = name + 'list';
         options = options || {};
         options.path = '/';
@@ -97,6 +104,7 @@ var compare = {
 
         //проерка лимита
         if(this.compareOptions['max'][listKey]> 0 && this.compareCount[listKey][parent] > (this.compareOptions['max'][listKey] - 1)){
+            this.log("В список "+listKey+" не додан элемент id = "+id+", parent = "+parent+ " из за ограничения количества элементов в группе")
             this.showAlert('max',elem,id,parent,listKey)
             return ;
         }
@@ -105,6 +113,7 @@ var compare = {
             this.cookie[listKey][parent] = {};
         }
         this.cookie[listKey][parent][id] = true;
+        this.log("В список "+listKey+" додан элемент id = "+id+", parent = "+parent);
         this.setCookie(listKey);
         if(elem.length){
             elem.addClass(this.activeClass);
@@ -115,7 +124,8 @@ var compare = {
         }
         this.compareCount[listKey][parent]++;
 
-        this.showAlert('add', elem, id, parent, listKey)
+        this.showAlert('add', elem, id, parent, listKey);
+
 
         if (typeof compareAfterAddItem === 'function') {  //проверка наличия кастомной функции
             compareAfterAddItem(id, parent, listKey);
@@ -138,6 +148,7 @@ var compare = {
         var parent = this.getParent(id,listKey);
 
         delete this.cookie[listKey][parent][id];
+        this.log("Из списка "+listKey+" удалено элемент id = "+id+", parent = "+parent);
         this.setCookie(listKey);
 
         if(typeof elem.length !== 'undefined' && elem.length){
@@ -194,6 +205,7 @@ var compare = {
                     }
                 })
             }
+            obj.log("Параметр data-parent установлен для элементов списка "+listKey);
             compareAfterReady('parent',listKey)
         });
 
@@ -219,6 +231,7 @@ var compare = {
                 this.compareCount[listKey][parent]++;
             }
         }
+        obj.log("Установлено активные классы для элементов списка "+listKey);
         this.updateGlobalClass(listKey);
 
         if (typeof compareAfterReady === 'function') {  //проверка наличия кастомной функции
@@ -287,6 +300,7 @@ var compare = {
     },
     /** обработчик клика по элементу **/
     toList: function (id,parent,listKey) {
+        this.log("Клик по элементу списка "+listKey+", id = "+id+", parent = "+parent);
         var elem = $('.'+listKey+'-list[data-id="'+id+'"]');
         //убираем товар из спика
         if (this.check(id,parent,listKey)) {
@@ -350,6 +364,15 @@ var compare = {
 
         });
     },
+    /** Вывод сообщений в консоль**/
+    log:function (message,type ) {
+        if(type !=="only"){
+            message = "Compare js: "+message;
+        }
+        if(this.compareOptions.log === "1"){
+            console.info(message);
+        }
+    },
     /** Стартовый метод **/
     run: function (option) {
 
@@ -358,6 +381,7 @@ var compare = {
         this.activeClass = option.activeClass;
         this.compareOptions.list.split(',').forEach(function (listKey) {
             obj.cookie[listKey] = obj.getCookie(listKey);
+            obj.log("start set actions for list "+listKey);
             obj.setActions(listKey)
         });
         this.lang = option.lang;

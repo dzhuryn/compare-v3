@@ -131,6 +131,15 @@
       "default": "1",
       "desc": ""
     }
+  ],
+  "log": [
+    {
+      "label": "Вывод лога в console",
+      "type": "text",
+      "value": "1",
+      "default": "0",
+      "desc": ""
+    }
   ]
 }
  * @internal @events    OnWebPageInit,OnPageNotFound

@@ -35,6 +35,7 @@ switch ($e->name) {
             'list' => $list,
             'activeClass' => $activeClass,
             'alertTemplate' => $alertTemplate,
+            'log' => $log,
         ];
 
         //Сборные параметры

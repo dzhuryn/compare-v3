@@ -136,96 +136,23 @@ class compare
      */
     public function getList()
     {
-        global $modx;
         $compareList = $this->getListFromStorage();
 
-        $compareData = [];
         //проходимся по категориям
         foreach ($compareList as $category => $items) {
-            $categoryName = $this->getCategoryName($category);
+
             $tvConfig = $this->getTvConfig($items);
 
-
-            $ids = [];
-            foreach ($items as $id => $bool) {
-                $ids[] = $id;
-            }
+            $ids = array_keys($items);
             if (empty($ids)) {
                 continue;
             };
             $ids = implode(',', $ids);
-            $tvs = [];
-            $tvsIds = [];
-
-            foreach ($tvConfig as $tvCategory) {
-                foreach ($tvCategory['tv'] as $tvElem) {
-
-                    $tvs[] = $tvElem['name'];
-                    $tvsIds[$tvElem['id']] = $tvElem['id'];
-                }
-            }
-
-            $defaultTvValue = $this->getDefaultTVValues($tvsIds);
-            if (!empty($this->config['dl_tvList'])) {
-                $tvs[] = $this->config['dl_tvList'];
-            }
-            $tvs = implode(',', $tvs);
 
 
-            // пользовательские параметры для DocLister по префиксу
-            $docLiterUserParams = [];
-            foreach ($this->config as $key=>$value) {
-                $exp = explode('_',$key);
-                if($exp[0]!='dl') {continue;}
-                if($exp[1]=='tvList') {continue;}
-                $docLiterUserParams[$exp[1]] = $value;
-            }
-            $defaultParams = [
-                'idType' => 'documents',
-                'documents' => $ids,
-                'tvList' => $tvs,
-                'tvPrefix' => '',
-                'api'=>1,
-                'selectFields'=>'id,pagetitle,longtitle,description,introtext',
-            ];
-            $params = array_merge($defaultParams,$docLiterUserParams);
-
-
-            $itemsData = $modx->runSnippet('DocLister', $params);
-            $itemsData = json_decode($itemsData,true);
-
-            //проверка на уникальность
-            foreach ($tvConfig as $categoryKey=> $tvCategory) {
-                foreach ($tvCategory['tv'] as $key=>$tvElem){
-
-                    $tvName = $tvElem['name'];
-                    $tvId = $tvElem['id'];
-                    $values = [];
-                    foreach ($itemsData as  $elem) {
-                        $tvValue = $elem[$tvName];
-                        $value = !empty($defaultTvValue[$tvId][$tvValue])?$defaultTvValue[$tvId][$tvValue]:$tvValue;
-                        $values[] = $value;
-                    }
-
-
-                    if($this->checkUniqueValue($values) === false){
-                        unset($tvConfig[$categoryKey]["tv"][$key]);
-                    }
-
-                    if($this->checkEmptyValues($values) === true){
-                        unset($tvConfig[$categoryKey]["tv"][$key]);
-                    }
-                    //если в категории не осталось параметров
-                    if(empty($tvConfig[$categoryKey]["tv"])){
-                        unset($tvConfig[$categoryKey]);
-                    }
-
-                }
-            }
-
-
-            //глобальный список конфигов по категориям
-            $this->categoryTVConfig[$category] = $tvConfig;
+            $defaultTvValue = $this->getDefaultTVValues($tvConfig);
+            $itemsData = $this->getItemsData($ids,$tvConfig);
+            $this->categoryTVConfig[$category] = $this->clearAndCheckUnique($tvConfig,$itemsData);
 
             $groupItems = [];
             foreach ($itemsData as $key=> $elem) {
@@ -233,36 +160,29 @@ class compare
                 foreach ($tvConfig as $tvCategory) {
                     foreach ($tvCategory['tv'] as $tvElem) {
                         $tvId = $tvElem['id'];
-                        $tvName = $tvElem['name'];
-                        $tvValue = $elem[$tvName];
-                        $value = !empty($defaultTvValue[$tvId][$tvValue])?$defaultTvValue[$tvId][$tvValue]:$tvValue;
-
-
+                        $tvValue = $elem[$tvElem['name']];
 
                         $itemTV[$tvId] = [
-                            'id'=>$tvElem['id'],
+                            'id'=>$tvId,
                             'name'=>$tvElem['name'],
                             'category'=>$tvElem['category'],
-                            'value'=>$value
+                            'value'=>$defaultTvValue[$tvId][$tvValue]?:$tvValue
                         ];
                     }
                 }
-
                 $groupItems[] = [
                     'item'=>$elem,
                     'tv'=>$itemTV
                 ];
             }
 
-            $compareData[$category] = [
+            $this->itemsData[$category] = [
                 'categoryId'=>$category,
-                'categoryName'=>$categoryName,
+                'categoryName'=>$this->getCategoryName($category),
                 'items'=>$groupItems
             ];
 
         }
-        $this->itemsData = $compareData;
-
 
         $prepare = $this->config['prepare'];
         if($prepare){
@@ -272,8 +192,6 @@ class compare
                     'placeholders' => $this->categoryTVConfig
                 ],
                 'templateName' => 'configPrepare',
-                'compare' => $this,
-
             ));
             //prepare для данных категорий и товаров
             $this->itemsData = $this->callPrepare($prepare, array(
@@ -281,8 +199,6 @@ class compare
                     'placeholders' => $this->itemsData
                 ],
                 'templateName' => 'itemsPrepare',
-                'compare' => $this,
-
             ));
         }
 
@@ -357,8 +273,6 @@ class compare
                 $categoryId = intval($this->config['tvConfigValue']);
                 $sql = "select T.id,T.name,T.caption,T.category from $this->T as T,$this->TT as TT where TT.tmplvarid = T.id and TT.templateid = $itemTemplate and T.category = $categoryId order by $groupOrderBy TT.rank ";
                 $tvList = $this->modx->db->makeArray($this->modx->db->query($sql));
-
-
                 break;
             case 'tv':
                 if (empty($firstItemId)) {
@@ -584,11 +498,7 @@ class compare
         $tv_names = array();
         if ($tv_ids != '' && !empty($this->product_templates_id)) {
             $product_templates_id = implode(',',$this->product_templates_id);
-
             $q = $this->modx->db->query("SELECT `a`.`id`, `a`.`".$field."` FROM " . $this->modx->getFullTableName('site_tmplvars') . " as `a`, " . $this->modx->getFullTableName('site_tmplvar_templates') . " as `b` WHERE `a`.`id` IN (" . $tv_ids . ") AND `a`.`id` = `b`.`tmplvarid` AND `b`.`templateid` IN(" . $product_templates_id . ") ORDER BY `b`.`rank` ASC, `a`.`$field` ASC");
-
-
-
             while ($row = $this->modx->db->getRow($q)){
                 if (!isset($tv_names[$row['id']])) {
                     $tv_names[$row['id']] = $row[$field];
@@ -598,10 +508,17 @@ class compare
         return $tv_names;
     }
 
-    public function getDefaultTVValues($array = array())
+    public function getDefaultTVValues($tvConfig)
     {
         $out = array();
-        $tvs = implode(",", array_keys($array));
+        $array = array();
+
+        foreach ($tvConfig as $tvCategory) {
+            foreach ($tvCategory['tv'] as $tvElem) {
+                $array[] = $tvElem['id'];
+            }
+        }
+        $tvs = implode(",", $array);
 
         if ($tvs != '') {
             $elements = $this->getTVNames($tv_ids = $tvs, $field = 'elements');
@@ -639,9 +556,6 @@ class compare
 
     private function getCategoryName($category)
     {
-
-
-
         if (empty($category)) {
             return '';
         } elseif (is_numeric($category)) {
@@ -704,7 +618,7 @@ class compare
                 'categoryId' => $categoryKey,
             ));
         }
-//добавляем $lang
+    //добавляем $lang
         foreach ($this->lang as $key => $val) {
             $data['lang_'.$key] = $val;
         }
@@ -803,6 +717,89 @@ class compare
             'tvs' => $tvsStr,
         ];
         return $this->parseChunk('groupTpl', $phl);
+
+    }
+
+
+    /** Убираем из конфигурации неуникальние или пустие данние при необходимости
+     * @param $tvConfig
+     * @param $itemsData
+     * @return mixed
+     */
+    private function clearAndCheckUnique($tvConfig, $itemsData)
+    {
+        foreach ($tvConfig as $categoryKey=> $tvCategory) {
+            foreach ($tvCategory['tv'] as $key=>$tvElem){
+
+                $tvName = $tvElem['name'];
+                $tvId = $tvElem['id'];
+                $values = [];
+                foreach ($itemsData as  $elem) {
+                    $tvValue = $elem[$tvName];
+                    $value = !empty($defaultTvValue[$tvId][$tvValue])?$defaultTvValue[$tvId][$tvValue]:$tvValue;
+                    $values[] = $value;
+                }
+
+
+                if($this->checkUniqueValue($values) === false){
+                    unset($tvConfig[$categoryKey]["tv"][$key]);
+                }
+
+                if($this->checkEmptyValues($values) === true){
+                    unset($tvConfig[$categoryKey]["tv"][$key]);
+                }
+                //если в категории не осталось параметров
+                if(empty($tvConfig[$categoryKey]["tv"])){
+                    unset($tvConfig[$categoryKey]);
+                }
+
+            }
+        }
+        return $tvConfig;
+
+    }
+
+    /** Получаем спомощю DocLister данные по ids товаров
+     * @param $ids
+     * @param $tvConfig
+     * @return mixed
+     */
+    private function getItemsData($ids, $tvConfig)
+    {
+        $tvs = [];
+        if (!empty($this->config['dl_tvList'])) {
+            $tvs[] = $this->config['dl_tvList'];
+        }
+        foreach ($tvConfig as $tvCategory) {
+            foreach ($tvCategory['tv'] as $tvElem) {
+                $tvs[] = $tvElem['name'];
+            }
+        }
+
+        $tvs = implode(',', $tvs);
+
+
+        // пользовательские параметры для DocLister по префиксу
+        $docLiterUserParams = [];
+        foreach ($this->config as $key=>$value) {
+            $exp = explode('_',$key);
+            if($exp[0]!='dl') {continue;}
+            if($exp[1]=='tvList') {continue;}
+            $docLiterUserParams[$exp[1]] = $value;
+        }
+        $defaultParams = [
+            'idType' => 'documents',
+            'documents' => $ids,
+            'tvList' => $tvs,
+            'tvPrefix' => '',
+            'api'=>1,
+            'selectFields'=>'id,pagetitle,longtitle,description,introtext',
+        ];
+        $params = array_merge($defaultParams,$docLiterUserParams);
+
+
+        $itemsData = $this->modx->runSnippet('DocLister', $params);
+        return json_decode($itemsData,true);
 
     }
 
